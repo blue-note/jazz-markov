@@ -78,8 +78,11 @@ def train(inputfile):
         event = next(iterTrack)
         if type(event) is midi.events.EndOfTrackEvent:
             break
-        note = event.data[0]
-        velocity = event.data[1]
+        if type(event) is midi.events.NoteOnEvent or type(event) is midi.NoteOffEvent:
+            note = event.data[0]
+            velocity = event.data[1]
+        else:
+            continue
 
         if type(event) is midi.events.NoteOnEvent and velocity != 0:
             if prev_note != -1:
@@ -172,9 +175,9 @@ def generate():
         duration_chain = global_structure[curr_third]["duration_chain"]
         notes_and_rests_chain = global_structure[curr_third]["notes_and_rests_chain"]
 
-        prev_note = step(prev_note, pitch_chain)
-        prev_duration = step(prev_duration, duration_chain)
-        prev_note_type = step(prev_note_type, notes_and_rests_chain)
+        prev_note = step(prev_note, pitch_chain, 'P')
+        prev_duration = step(prev_duration, duration_chain, 'D')
+        prev_note_type = step(prev_note_type, notes_and_rests_chain, 'N')
 
         pitch_walk.append(prev_note)
         duration_walk.append(prev_duration)
@@ -209,9 +212,9 @@ def generate():
 
     track.append(midi.EndOfTrackEvent(tick=1))
     pattern.append(track)
-    midi.write_midifile("testing4.mid", pattern)
+    midi.write_midifile("testing5.mid", pattern)
 
-def step(state, chain):
+def step(state, chain, chaintype):
     successors = get_successors(state, chain)
     if len(successors) == 0:
         c = random.choice(chain.keys())
