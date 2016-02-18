@@ -6,7 +6,7 @@ from itertools import cycle
 import shelve
 import os
 
-def train(inputfile):
+def train(inputfile, global_structure):
 
     # inputfile is one-track midi file, 12-bar blues progression in C, 4/4
 
@@ -18,42 +18,6 @@ def train(inputfile):
     ticks_per_third = (total_num_measures / 3) * ticks_per_measure
     ticks_so_far = 0
     total_ticks = 0
-
-    # chains
-
-    global_structure = dict()
-    global_structure[0] = dict()
-    global_structure[1] = dict()
-    global_structure[2] = dict()
-
-    global_structure[0]["pitch_chain"] = pykov.Chain()
-    global_structure[0]["duration_chain"] = pykov.Chain()
-    global_structure[0]["notes_and_rests_chain"] = pykov.Chain()
-
-    global_structure[1]["pitch_chain"] = pykov.Chain()
-    global_structure[1]["duration_chain"] = pykov.Chain()
-    global_structure[1]["notes_and_rests_chain"] = pykov.Chain()
-
-    global_structure[2]["pitch_chain"] = pykov.Chain()
-    global_structure[2]["duration_chain"] = pykov.Chain()
-    global_structure[2]["notes_and_rests_chain"] = pykov.Chain()
-
-    # for now, assume even first-order transition probability from note to rest and rest to note
-
-    global_structure[0]["notes_and_rests_chain"][('N','R')] = 0.25
-    global_structure[0]["notes_and_rests_chain"][('N', 'N')] = 0.25
-    global_structure[0]["notes_and_rests_chain"][('R','N')] = 0.25
-    global_structure[0]["notes_and_rests_chain"][('R', 'R')] = 0.25
-
-    global_structure[1]["notes_and_rests_chain"][('N','R')] = 0.25
-    global_structure[1]["notes_and_rests_chain"][('N', 'N')] = 0.25
-    global_structure[1]["notes_and_rests_chain"][('R','N')] = 0.25
-    global_structure[1]["notes_and_rests_chain"][('R', 'R')] = 0.25
-
-    global_structure[2]["notes_and_rests_chain"][('N','R')] = 0.25
-    global_structure[2]["notes_and_rests_chain"][('N', 'N')] = 0.25
-    global_structure[2]["notes_and_rests_chain"][('R','N')] = 0.25
-    global_structure[2]["notes_and_rests_chain"][('R', 'R')] = 0.25
 
     # create cycle on track, iterate through while counting ticks, note the current note and the following as tuples
     # assume there are no simultaneous notes
@@ -89,6 +53,7 @@ def train(inputfile):
                 save_pitch_transition(prev_note, note)
 
             # transition probability from last rest (if exists) to current note
+
             if prev_duration != -1 and event.tick > 0:
                 prev_duration = save_duration_transition(prev_duration, event.tick)
 
@@ -137,15 +102,15 @@ def to_pykov_chains(global_structure):
             chain_dict[name] = pykov.Chain(chain) # replace dict with pykov chain
     return global_structure
 
-def generate():
+def generate(global_structure):
 
     # get training data from disk
 
-    d = shelve.open("training_data")
-    try:
-        global_structure = to_pykov_chains(d["global_structure"])
-    finally: 
-        d.close()
+    # d = shelve.open("training_data")
+    # try:
+    #     global_structure = to_pykov_chains(d["global_structure"])
+    # finally: 
+    #     d.close()
 
     # generate melody
 
@@ -212,7 +177,7 @@ def generate():
 
     track.append(midi.EndOfTrackEvent(tick=1))
     pattern.append(track)
-    midi.write_midifile("testing5.mid", pattern)
+    midi.write_midifile("trained_on_multiple3.mid", pattern)
 
 def step(state, chain, chaintype):
     successors = get_successors(state, chain)
@@ -247,5 +212,46 @@ def choice(successors):
     return res
 
 if __name__ == "__main__":
-    train(sys.argv[1])
-    generate()
+
+    # chains
+
+    global_structure = dict()
+    global_structure[0] = dict()
+    global_structure[1] = dict()
+    global_structure[2] = dict()
+
+    global_structure[0]["pitch_chain"] = pykov.Chain()
+    global_structure[0]["duration_chain"] = pykov.Chain()
+    global_structure[0]["notes_and_rests_chain"] = pykov.Chain()
+
+    global_structure[1]["pitch_chain"] = pykov.Chain()
+    global_structure[1]["duration_chain"] = pykov.Chain()
+    global_structure[1]["notes_and_rests_chain"] = pykov.Chain()
+
+    global_structure[2]["pitch_chain"] = pykov.Chain()
+    global_structure[2]["duration_chain"] = pykov.Chain()
+    global_structure[2]["notes_and_rests_chain"] = pykov.Chain()
+
+    # for now, assume even first-order transition probability from note to rest and rest to note
+
+    global_structure[0]["notes_and_rests_chain"][('N','R')] = 0.25
+    global_structure[0]["notes_and_rests_chain"][('N', 'N')] = 0.25
+    global_structure[0]["notes_and_rests_chain"][('R','N')] = 0.25
+    global_structure[0]["notes_and_rests_chain"][('R', 'R')] = 0.25
+
+    global_structure[1]["notes_and_rests_chain"][('N','R')] = 0.25
+    global_structure[1]["notes_and_rests_chain"][('N', 'N')] = 0.25
+    global_structure[1]["notes_and_rests_chain"][('R','N')] = 0.25
+    global_structure[1]["notes_and_rests_chain"][('R', 'R')] = 0.25
+
+    global_structure[2]["notes_and_rests_chain"][('N','R')] = 0.25
+    global_structure[2]["notes_and_rests_chain"][('N', 'N')] = 0.25
+    global_structure[2]["notes_and_rests_chain"][('R','N')] = 0.25
+    global_structure[2]["notes_and_rests_chain"][('R', 'R')] = 0.25
+
+    i = 0
+    rootdir = "/Users/janitachalam/Documents/Amherst/SENIOR/Thesis/jazz_markov_code/phase_one_training_melodies"
+    for subdir, dirs, files in os.walk(rootdir):
+        for f in files:
+            train(os.path.join(rootdir, f), global_structure) 
+    generate(global_structure)
