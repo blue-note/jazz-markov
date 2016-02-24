@@ -130,9 +130,9 @@ def generate(global_structure):
 
     # select starting state based on steady state probabilities
 
-    prev_note = choice(pitch_chain.steady())
-    prev_duration = choice(duration_chain.steady())
-    prev_note_type = choice(notes_and_rests_chain.steady())
+    prev_note = choice(None, pitch_chain.steady())
+    prev_duration = choice(None, duration_chain.steady())
+    prev_note_type = choice(None, notes_and_rests_chain.steady())
 
     while curr_third < 3:
 
@@ -140,9 +140,9 @@ def generate(global_structure):
         duration_chain = global_structure[curr_third]["duration_chain"]
         notes_and_rests_chain = global_structure[curr_third]["notes_and_rests_chain"]
 
-        prev_note = step(prev_note, pitch_chain, 'P')
-        prev_duration = step(prev_duration, duration_chain, 'D')
-        prev_note_type = step(prev_note_type, notes_and_rests_chain, 'N')
+        prev_note = choice(prev_note, pitch_chain)
+        prev_duration = choice(prev_duration, duration_chain)
+        prev_note_type = choice(prev_note_type, notes_and_rests_chain)
 
         pitch_walk.append(prev_note)
         duration_walk.append(prev_duration)
@@ -177,15 +177,7 @@ def generate(global_structure):
 
     track.append(midi.EndOfTrackEvent(tick=1))
     pattern.append(track)
-    midi.write_midifile("trained_on_multiple3.mid", pattern)
-
-def step(state, chain, chaintype):
-    successors = get_successors(state, chain)
-    if len(successors) == 0:
-        c = random.choice(chain.keys())
-        return c[0]
-    else:
-        return choice(successors)
+    midi.write_midifile("trained_on_multiple4.mid", pattern)
 
 def get_successors(state, chain):
     # for input state return a dict of successors and their transition probs from the given chain
@@ -196,8 +188,16 @@ def get_successors(state, chain):
     res.normalize()
     return res
 
-def choice(successors):
+def choice(state, chain):
     # return random step based on distribution
+    if state is None:
+		successors = chain 
+    else:
+    	successors = get_successors(state, chain)
+    if len(successors) == 0:
+        c = random.choice(chain.keys())
+        return c[0]
+
     func = random.uniform
     x = func(0,1)
     res = random.choice(successors.keys())
@@ -251,7 +251,8 @@ if __name__ == "__main__":
 
     i = 0
     rootdir = "/Users/janitachalam/Documents/Amherst/SENIOR/Thesis/jazz_markov_code/phase_one_training_melodies"
-    for subdir, dirs, files in os.walk(rootdir):
-        for f in files:
-            train(os.path.join(rootdir, f), global_structure) 
+    # for subdir, dirs, files in os.walk(rootdir):
+    #     for f in files:
+    #         train(os.path.join(rootdir, f), global_structure) 
+    train(sys.argv[1], global_structure)
     generate(global_structure)
