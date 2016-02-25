@@ -6,6 +6,18 @@ from itertools import cycle
 import shelve
 import os
 
+class Note:
+       def __init__(self, pitch, duration, note_type):
+		# pitch = integer
+		# duration = ticks
+		# note_type = 'N' or 'R'
+        self.pitch = pitch
+        self.duration = duration
+        self.note_type = note_type
+
+       def __str__(self):
+        return "type: " + self.note_type + "\n" + "pitch: " + str(self.pitch) + "\n" + "duration: " + str(self.duration) + " \n"
+
 def train(inputfile, global_structure):
 
     # inputfile is one-track midi file, 12-bar blues progression in C, 4/4
@@ -17,7 +29,6 @@ def train(inputfile, global_structure):
     ticks_per_measure = pattern.resolution * beats_per_measure
     ticks_per_third = (total_num_measures / 3) * ticks_per_measure
     ticks_so_far = 0
-    total_ticks = 0
 
     # create cycle on track, iterate through while counting ticks, note the current note and the following as tuples
     # assume there are no simultaneous notes
@@ -27,6 +38,13 @@ def train(inputfile, global_structure):
     prev_note = -1
     prev_duration = -1
     prev_note_type = -1
+
+    # for pairwise version
+
+    last_pitch = 0
+    last_note_start = 0
+    last_note_end = 0
+    notes_and_rests_list = []
 
     def save_duration_transition(prev_duration, curr_tick):
         fraction_of_measure = float(curr_tick) / float(ticks_per_measure)
@@ -38,45 +56,63 @@ def train(inputfile, global_structure):
     def save_pitch_transition(prev_note, curr_note):
         global_structure[curr_third]["pitch_chain"][(prev_note, note)] += 1
 
+
     while curr_third < 3:
+
         event = next(iterTrack)
         if type(event) is midi.events.EndOfTrackEvent:
             break
         if type(event) is midi.events.NoteOnEvent or type(event) is midi.NoteOffEvent:
-            note = event.data[0]
+            pitch = event.data[0]
             velocity = event.data[1]
         else:
-            continue
+            continue # bypass meta track events
 
-        if type(event) is midi.events.NoteOnEvent and velocity != 0:
-            if prev_note != -1:
-                save_pitch_transition(prev_note, note)
+        if type(event) is midi.events.NoteOnEvent and velocity != 0: # start of note
+
+        	###### OLD VERSION
+
+            # if prev_note != -1:
+            #     save_pitch_transition(prev_note, note)
+
+            if event.tick > 0:
+            	notes_and_rests_list.append(Note(-1, event.tick, 'R'))
+            ticks_so_far += event.tick
 
             # transition probability from last rest (if exists) to current note
 
-            if prev_duration != -1 and event.tick > 0:
-                prev_duration = save_duration_transition(prev_duration, event.tick)
+            ###### OLD VERSION
 
-            prev_note = note
-            ticks_so_far += event.tick
-            total_ticks += event.tick
+            # if prev_duration != -1 and event.tick > 0:
+            #     prev_duration = save_duration_transition(prev_duration, event.tick)
 
-        elif type(event) is midi.events.NoteOffEvent or velocity == 0:
+            # prev_note = note
+            # ticks_so_far += event.tick
+
+        elif type(event) is midi.events.NoteOffEvent or velocity == 0: # end of note
+
+        	###### OLD VERSION
+
             # calculate note duration & increment tick
-            if prev_note != -1 and event.tick > 0:
-                prev_duration = save_duration_transition(prev_duration, event.tick)
-                ticks_so_far += event.tick
-                total_ticks += event.tick
+            # if prev_note != -1 and event.tick > 0:
+            #     prev_duration = save_duration_transition(prev_duration, event.tick)
+            #     ticks_so_far += event.tick
+
+            notes_and_rests_list.append(Note(pitch, event.tick, 'N'))
+            ticks_so_far += event.tick
 
         if ticks_so_far >= ticks_per_third:
             curr_third += 1
             ticks_so_far = 0
 
-    d = shelve.open("training_data")
-    try:
-        d["global_structure"] = to_dict(global_structure)
-    finally: 
-        d.close()
+    # d = shelve.open("training_data")
+    # try:
+    #     d["global_structure"] = to_dict(global_structure)
+    # finally: 
+    #     d.close()
+
+    for note in notes_and_rests_list:
+    	print note
 
 def roundtoEighth(x, prec=3, base=0.125):
 
@@ -254,5 +290,7 @@ if __name__ == "__main__":
     # for subdir, dirs, files in os.walk(rootdir):
     #     for f in files:
     #         train(os.path.join(rootdir, f), global_structure) 
+
     train(sys.argv[1], global_structure)
-    generate(global_structure)
+    #generate(global_structure)
+
