@@ -167,40 +167,35 @@ def get_chords(bass_track, ticks_per_measure, key):
             max_weight = 0
             matched_chord = -1
             for i in range(0, 23): # iterate through major and minor chords
-                minor = False
+                minor_chord = False
                 o = i
                 i = (i + 12 - key) % 12
                 weight = 0
                 first = -1
                 third = -1
                 fifth = -1
-                major = [i, i+2, i+4, i+5, i+7, i+9, i+11]
+
+                major = [i, i+2, i+4, i+5, i+7, i+9, i+10]
                 minor = [i, i+2, i+3, i+5, i+7, i+8, i+10]
-                
-                if o < 12: # major key
-                    first = i
-                    third = (i + 4) % 12
-                    fifth = (third + 3) % 12
+
+                major = [i, i+4, i+7, i+10]
+                minor = [i, i+3, i+7, i+10]
+
+                if o < 12: # major chord
+                    for n in major:
+                        if n in current_measure:
+                            weight += current_measure[n]
 
                 else: # minor chord
-                    minor = True
-                    first = i
-                    third = (i + 3) % 12
-                    fifth = (third + 4) % 12
-
-                # sum the length of matching occurrences
-
-                if first in current_measure:
-                    weight += current_measure[first]
-                if third in current_measure:
-                    weight += current_measure[third]
-                if fifth in current_measure:
-                    weight += current_measure[fifth]
+                    minor_chord = True
+                    for n in minor:
+                        if n in current_measure:
+                            weight += current_measure[n]
 
                 # find max matching chord 
                 if weight > max_weight:
                     max_weight = weight
-                    if minor:
+                    if minor_chord:
                         matched_chord = i + 12
                     else:
                         matched_chord = i
