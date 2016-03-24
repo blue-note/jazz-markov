@@ -9,13 +9,18 @@ import math
 
 
 class Note:
-       def __init__(self, pitch, duration, note_type):
+       def __init__(self, pitch, duration, note_type, start=-1, end=-1):
         # pitch = integer
         # duration = ticks
         # note_type = 'N' or 'R'
         self.pitch = pitch
         self.duration = duration
         self.note_type = note_type
+        self.start = start
+        self.end = end
+
+       def __gt__(self, note_2):
+        return self.start > note_2.start
 
        def __str__(self):
         return "type: " + self.note_type + "\n" + "pitch: " + str(self.pitch) + "\n" + "duration: " + str(self.duration) + " \n"
@@ -25,7 +30,8 @@ def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_ab
     pattern = midi.read_midifile(input_file)
     metadata = pattern[0]
     melody = pattern[1]
-    bassline = pattern[2]
+    piano = pattern[2]
+    bassline = pattern[3]
     key_code = -1
     beats_per_measure = -1
     ticks_per_measure = -1
@@ -43,14 +49,21 @@ def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_ab
             beats_per_measure = el.data[0]
             ticks_per_measure = pattern.resolution * beats_per_measure
     if key_code == -1 or beats_per_measure == -1:
-        sys.exit("No time or key signature")
+        sys.exit("No time or key signature: " + input_file)
 
     key = get_key(key_code)
-    chord_progression = get_chords(bassline, ticks_per_measure, key)
+    # msrs = get_measures_3(piano, ticks_per_measure)
+    # for m in msrs:
+    #     print 'MEASURE: '
+    #     for n in m:
+    #         print n
+
+
+    chord_progression = get_chords_2(bassline, piano, ticks_per_measure, key)
     for c in chord_progression:
         print c
         print "\n"
-    #curr_chord = next(chord_progression)
+    curr_chord = next(chord_progression)
     prev_chord = ""
     curr_category = ""
     prev_category = ""
@@ -59,6 +72,8 @@ def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_ab
     first_next = -1
 
     ## PHRASE TRANSITION LEARNING
+
+    # measures = get_measures_3()
 
     # # extract phrases 
     # notes = get_notes(melody)
@@ -123,26 +138,211 @@ def get_notes(track):
     notes = list()
     iterTrack = iter(track)
     event = ""
+    pitch = -1
+    velocity = -1
+    current_notes = dict() # list current pitches being played to their note objects
+    ticks_so_far = 0
+
     while type(event) != midi.EndOfTrackEvent:
         event = next(iterTrack)
+        ticks_so_far += event.tick
+
         if type(event) is midi.NoteOnEvent or type(event) is midi.NoteOffEvent:
             pitch = event.data[0]
             velocity = event.data[1]
         else:
             continue # bypass meta track events
         if type(event) is midi.NoteOnEvent and velocity != 0: # start of note
-               if event.tick > 0: # register prior rest
-                    notes.append(Note(-1, event.tick, 'R'))
+
+            if event.tick > 0 and not current_notes: # register prior rest if no other notes playing
+                notes.append(Note(-1, event.tick, 'R'))
+
+            n = Note(pitch, 0, 'N', ticks_so_far)
+            current_notes[pitch] = n
 
         elif type(event) is midi.NoteOffEvent or velocity == 0: # end of note
-            notes.append(Note(pitch, event.tick, 'N'))
+            if pitch in current_notes:
+                n = current_notes[pitch]
+                n.duration = ticks_so_far - n.start
+                n.end = ticks_so_far
+                notes.append(n)
+                del current_notes[pitch]
 
     return notes
 
+def get_measures_3(track, ticks_per_measure):
+    notes = get_notes(track)
+    notes.sort()
+    measure_count = 0
+    measures = list()
+    current_measure = list()
+    carry_over = list()
+    i = 0
+    note = notes[i]
 
-def get_chords(bass_track, ticks_per_measure, key):
+    while i < len(notes):
+        start = measure_count * ticks_per_measure
+        end = (measure_count + 1) * ticks_per_measure
+
+        while note.start < end and i < len(notes):
+            if note.note_type != 'R':
+                if note.end <= end:
+                    current_measure.append(note)
+                else:
+                    remainder = note.end - end
+                    carry_over.append(Note(note.pitch, remainder, 'N', end, note.end))
+                    note.end -= remainder
+                    current_measure.append(note) 
+            
+            note = notes[i]
+            i += 1
+        
+        measures.append(current_measure)
+        j = i
+        for el in carry_over:
+            notes.insert(j, el)
+            j += 1
+        current_measure = list()
+        carry_over = list()
+        measure_count += 1
+
+    return measures
+
+
+def get_measures(track, ticks_per_measure):
+    notes = get_notes(track)
+    measures = list()
+    ticks_so_far = 0
+    current_measure = list()
+    carry_over = set()
+    total_ticks = 0
+    num_measures = 0
+
+    for i in range(len(notes)):
+        note = notes[i]
+        ticks_so_far += note.start - last_end # relative count (within measure)
+        total_ticks = note.start # absolute count
+        last_end = 0
+        if ticks_so_far + note.duration <= ticks_per_measure:
+            if note.note_type != 'R':
+                current_measure.append(note)
+
+        
+        elif ticks_so_far < ticks_per_measure and ticks_so_far + note.duration > ticks_per_measure:
+            if note.note_type != 'R':
+                remainder = ticks_so_far + note.duration - ticks_per_measure
+                carry_over.add(Note(note.pitch, remainder, 'N', total_ticks+note.duration-remainder, total_ticks+note.duration)) # need absolute start
+                note.duration -= remainder
+                
+
+        if ticks_so_far >= ticks_per_measure:
+            ticks_so_far = ticks_so_far % ticks_per_measure
+
+
+        else:
+            carry_over = set()
+
+
+
+            if ticks_so_far > 0: # split note between measures
+                first_next = Note(note.pitch, ticks_so_far, note.note_type)
+                current_measure[len(current_measure)-1].duration -= ticks_so_far
+            else: 
+                first_next = -1
+            measures.append(current_measure)    
+            current_measure = list()
+            if first_next != -1:
+                current_measure.append(first_next)
+    return measures
+
+
+def get_chords_2(bass, piano, ticks_per_measure, key):
     key = key % 12 # account for minor keys
-    notes = get_notes(bass_track)
+    bass_measures = get_measures_3(bass, ticks_per_measure)
+    piano_measures = get_measures_3(piano, ticks_per_measure)
+
+    for m in bass_measures:
+        if len(m) >= 1:
+            m[0].duration *= 2
+
+    max_length = max(len(bass_measures), len(piano_measures))
+    chord_progression = list()
+
+    for j in range(0, max_length): 
+        current_measure = list()
+        if j < len(bass_measures):
+            current_measure += bass_measures[j]
+        if j < len(piano_measures):
+            current_measure += piano_measures[j]
+
+        max_weight = 0
+        matched_chord = -1
+        for i in range(0, 23): # iterate through major and minor chords
+            o = i 
+            i = (i + 12 - key) % 12
+            weight = 0
+
+            major = [i, i+2, i+4, i+5, i+7, i+9, i+11]
+            minor = [i, i+2, i+3, i+5, i+7, i+8, i+10]
+
+            major = [i, i+4, i+7, i+11]
+            minor = [i, i+3, i+7, i+10]
+
+            if o < 12: # major chord
+                for chord_tone in major:
+                    c = chord_tone % 12
+                    for note in current_measure:
+                        n = (note.pitch + 12 - key) % 12
+                        if n == c:
+                            if c == i: # increase weight for matched tonic notes
+                                weight += note.duration * 2 # change to duration after simultaneous notes
+                            else:
+                                weight += note.duration
+
+            else: # minor chord
+                for chord_tone in minor:
+                    c = chord_tone % 12
+                    for note in current_measure:
+                        n = (note.pitch + 12 - key) % 12
+                        if n == c:
+                            if c == i: # increase weight for matched tonic notes
+                                weight += note.duration * 2 # change to duration after simultaneous notes
+                            else:
+                                weight += note.duration
+
+            # if j == 1 and i == 0:
+            #     print "2nd measure notes: "
+            #     for n in current_measure:
+                    #print str((n.pitch + 12 - key) % 12) + ": " + str(roundtoEighth(float(n.duration) / float(ticks_per_measure), ticks_per_measure))
+                     # print str((n.pitch + 12 - key) % 12) 
+                    #+ ": " + str(n.duration)
+            # if i == 8 and j == 0 and o < 12:
+            #     print "major 8 chord weight for measure 1: " + str(weight)
+
+            # if i == 0 and o < 12 and j == 0:
+            #     print "major 9 chord weight for measure 1: " + str(weight)
+
+
+            # find max matching chord 
+            if weight > max_weight:
+                max_weight = weight
+                if o >= 12:
+                    matched_chord = i + 12
+                else:
+                    matched_chord = i
+
+        chord_progression.append(matched_chord)
+        # print "MEASURE"
+        # for n in current_measure:
+        #     print (n.pitch +12 - key) % 12
+        # print '\n'
+
+    return chord_progression
+
+
+def get_chords(bass, piano, ticks_per_measure, key):
+    key = key % 12 # account for minor keys
+    notes = get_notes(bass)
     ticks_so_far = 0
     chord_progression = list()
     current_measure = dict() # dict of pitches to durations
@@ -178,7 +378,7 @@ def get_chords(bass_track, ticks_per_measure, key):
                 major = [i, i+2, i+4, i+5, i+7, i+9, i+10]
                 minor = [i, i+2, i+3, i+5, i+7, i+8, i+10]
 
-                major = [i, i+4, i+7, i+10]
+                major = [i, i+4, i+7, i+11]
                 minor = [i, i+3, i+7, i+10]
 
                 if o < 12: # major chord
@@ -206,6 +406,14 @@ def get_chords(bass_track, ticks_per_measure, key):
                 current_measure[note] = duration 
            
     return chord_progression
+
+def roundtoEighth(x, ticks_per_measure, prec=3, base=0.125):
+    fraction_of_measure = float(x) / float(ticks_per_measure)
+    res = round(base * round(float(fraction_of_measure)/base), prec)
+    if res == 0:
+        return 0.125
+    else:
+        return res
 
 def get_chord_progression(bass_track, ticks_per_measure, key):
      # returns list of chords corresponding to bassline
