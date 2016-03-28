@@ -25,7 +25,7 @@ class Note:
        def __str__(self):
         return "type: " + self.note_type + "\n" + "pitch: " + str(self.pitch) + "\n" + "duration: " + str(self.duration) + " \n"
 
-def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_abstract_melodies):
+def train(input_file, category_transitions, abstract_note_to_pitch, category_to_abstract_melodies):
     ticks_so_far = 0
     pattern = midi.read_midifile(input_file)
     metadata = pattern[0]
@@ -59,11 +59,12 @@ def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_ab
     #         print n
 
 
-    chord_progression = get_chords_2(bassline, piano, ticks_per_measure, key)
-    for c in chord_progression:
-        print c
-        print "\n"
-    curr_chord = next(chord_progression)
+    chord_progression = iter(get_chords_2(bassline, piano, ticks_per_measure, key))
+    # for c in chord_progression:
+    #     print c
+    #     print "\n"
+    # chord_progression = iter([0, 0, 0, 0, 5, 5, 0, 0, 7, 5, 0, 0])
+
     prev_chord = ""
     curr_category = ""
     prev_category = ""
@@ -73,8 +74,34 @@ def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_ab
 
     ## PHRASE TRANSITION LEARNING
 
-    # measures = get_measures_3()
+    measures = get_measures_3(melody, ticks_per_measure)
 
+    for m in measures:
+        curr_chord = next(chord_progression)
+        if curr_chord != -1:
+            abstract_melody = to_abstract_melody(m, curr_chord, key, ticks_per_measure)
+            for i in range(len(abstract_melody)):
+                p = m[i].pitch
+                n = (p + 12 - key) % 12 # note relative to key
+                t = abstract_melody[i][0]
+                if n in abstract_note_to_pitch[curr_chord][t]:
+                    abstract_note_to_pitch[curr_chord][t][n] += 1
+                else:
+                    abstract_note_to_pitch[curr_chord][t][n] = 1
+            curr_category = get_category(m)
+            if curr_category in category_to_abstract_melodies:
+                category_to_abstract_melodies[curr_category].append(abstract_melody)
+            else:
+                category_to_abstract_melodies[curr_category] = [abstract_melody]
+        
+            if prev_category != "":
+                if (prev_category, curr_category) in category_transitions:
+                    category_transitions[(prev_category, curr_category)] += 1
+                else:
+                    category_transitions[(prev_category, curr_category)] = 1
+
+
+     ### OLD VERSION ###
     # # extract phrases 
     # notes = get_notes(melody)
     # for note in notes:
@@ -99,10 +126,10 @@ def train(input_file, phrase_transitions, abstract_note_to_pitch, category_to_ab
 
     #         if len(prev_phrase) > 0:
     #             # save feel, chord --> feel, chord transition
-    #             if ((prev_category, prev_chord), (curr_category, curr_chord)) in phrase_transitions:
-    #                 phrase_transitions[((prev_category, prev_chord), (curr_category, curr_chord))] += 1
+    #             if ((prev_category, prev_chord), (curr_category, curr_chord)) in category_transitions:
+    #                 category_transitions[((prev_category, prev_chord), (curr_category, curr_chord))] += 1
     #             else:
-    #                 phrase_transitions[((prev_category, prev_chord), (curr_category, curr_chord))] = 1
+    #                 category_transitions[((prev_category, prev_chord), (curr_category, curr_chord))] = 1
 
     #             # save abstract melody under category
 
@@ -261,9 +288,9 @@ def get_chords_2(bass, piano, ticks_per_measure, key):
     bass_measures = get_measures_3(bass, ticks_per_measure)
     piano_measures = get_measures_3(piano, ticks_per_measure)
 
-    for m in bass_measures:
-        if len(m) >= 1:
-            m[0].duration *= 2
+    # for m in bass_measures:
+    #     if len(m) >= 1:
+    #         m[0].duration *= 2
 
     max_length = max(len(bass_measures), len(piano_measures))
     chord_progression = list()
@@ -322,6 +349,10 @@ def get_chords_2(bass, piano, ticks_per_measure, key):
             # if i == 0 and o < 12 and j == 0:
             #     print "major 9 chord weight for measure 1: " + str(weight)
 
+            # if j == 1 and o < 12 and i == 0:
+            #     print "0th chord weight for measure 2: " + str(weight)
+            # if j == 1 and o < 12 and i == 10:
+            #     print "7th chord weight for measure 2: " + str(weight)
 
             # find max matching chord 
             if weight > max_weight:
@@ -336,6 +367,7 @@ def get_chords_2(bass, piano, ticks_per_measure, key):
         # for n in current_measure:
         #     print (n.pitch +12 - key) % 12
         # print '\n'
+
 
     return chord_progression
 
@@ -415,6 +447,9 @@ def roundtoEighth(x, ticks_per_measure, prec=3, base=0.125):
     else:
         return res
 
+def roundG(x, prec, base):
+    return round(base * round(float(x)/float(base)), prec)
+
 def get_chord_progression(bass_track, ticks_per_measure, key):
      # returns list of chords corresponding to bassline
 
@@ -460,15 +495,62 @@ def get_chord_progression(bass_track, ticks_per_measure, key):
 
     return chord_progression
 
-def to_abstract_melody(melody, curr_chord):
-    # returns note representations
-    pass 
+def to_abstract_melody(melody, c, key, ticks_per_measure):
+    # returns note representations relative to chord
+
+    chord_tones = list()
+    abstract_melody = list()
+    minor = key >= 12
+    key = key % 12
+    if minor:
+        chord_tones = [c, c+3, c+7, c+10]
+    else:
+        chord_tones = [c, c+4, c+7, c+11]
+    
+    color_tones = [c+2, c+5, c+9]
+    approach_tones = [c+6, c+8]
+
+    for note in melody:
+        n = (note.pitch + 12 - key) % 12 # get note relative to key
+        d = str(roundtoEighth(note.duration, ticks_per_measure))
+        if n in chord_tones:
+            abstract_melody.append('A' + d)
+        elif n in color_tones:
+            abstract_melody.append('B' + d)
+        elif n in approach_tones:
+            abstract_melody.append('C' + d)
+        else: 
+            abstract_melody.append('X' + d)
+
+    return abstract_melody
 
 def get_category(melody):
-    pass
+    num_ascending = 0
+    num_descending = 0
+    for i in range(len(melody) - 1):
+        a = melody[i]
+        b = melody[i+1]
+        if a.pitch <= b.pitch:
+            num_ascending += 1
+        else: 
+            num_descending += 1
+
+    c = roundG(len(melody), 0, 4) # round length of phrase to nearest 4
+    r = 2
+    if num_descending != 0:
+        r = float(num_ascending) / float(num_descending)
+
+    r = roundG(r, 1, 0.5) # round ratio of ascending to descending pairs
+    return str(r) + '-' + str(c)
 
 if __name__ == "__main__":
-    phrase_transitions = dict()
+    category_transitions = dict()
     abstract_note_to_pitch = dict()
+    for i in range(0, 25):
+        abstract_note_to_pitch[i] = dict()
+        abstract_note_to_pitch[i]['A'] = dict()
+        abstract_note_to_pitch[i]['B'] = dict()
+        abstract_note_to_pitch[i]['C'] = dict()
+        abstract_note_to_pitch[i]['X'] = dict()
     category_to_abstract_melodies = dict()
-    train(sys.argv[1], phrase_transitions, abstract_note_to_pitch, category_to_abstract_melodies)
+    train(sys.argv[1], category_transitions, abstract_note_to_pitch, category_to_abstract_melodies)
