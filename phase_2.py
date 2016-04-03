@@ -19,11 +19,25 @@ class Note:
         self.start = start
         self.end = end
 
-       def __gt__(self, note_2):
-        return self.start > note_2.start
+       def __gt__(self, n):
+        return self.start > n.start
 
        def __str__(self):
         return "type: " + self.note_type + "\n" + "pitch: " + str(self.pitch) + "\n" + "duration: " + str(self.duration) + " \n"
+
+class Event: 
+
+    # on or off events with absolute tick
+
+    def __init__(self, tipe, start, end, pitch):
+        self.type = tipe
+        self.start = start
+        self.end = end
+        self.pitch = pitch
+
+    def __gt__(self, e):
+        return self.tick > e.tick
+
 
 def train(input_file, category_transitions, abstract_note_to_note, category_to_abstract_melodies):
     ticks_so_far = 0
@@ -52,7 +66,16 @@ def train(input_file, category_transitions, abstract_note_to_note, category_to_a
         sys.exit("No time or key signature: " + input_file)
 
     key = get_key(key_code)
+    chord_progression = get_chord_progression(bassline, piano, ticks_per_measure, key)
+    for c in chord_progression:
+        print c
+        
     chord_progression = iter(get_chord_progression(bassline, piano, ticks_per_measure, key))
+
+    # FOR TESTING
+
+    # chord_progression = iter([0, 0, 14, 21, 0, 14, 7, 21, 0, 0, 14, 21]) # change_short
+    # chord_progression = iter([0, 0, 14]) # change_shortest
     # for c in chord_progression:
     #     print c
     #     print "\n"
@@ -68,15 +91,20 @@ def train(input_file, category_transitions, abstract_note_to_note, category_to_a
     ## PHRASE TRANSITION LEARNING
 
     measures = get_measures(melody, ticks_per_measure)
+
     # for e in measures:
         # print " ".join(str(a.pitch) for a in e)
         # print '\n'
 
-    for m in measures:
+    for j in range(len(measures)):
+        m = measures[j]
         curr_chord = next(chord_progression)
         if curr_chord != -1:
             abstract_melody = to_abstract_melody(m, curr_chord, key, ticks_per_measure)
-            for i in range(len(abstract_melody)):
+            # if j == 4:
+            #     print " ".join(str(n) for n in m)
+            abstract_melody.append(j)
+            for i in range(len(abstract_melody)-1):
                 p = m[i].pitch
                 n = (p + 12 - key) % 12 # note relative to key
                 t = abstract_melody[i][0]
@@ -171,8 +199,7 @@ def get_measures(track, ticks_per_measure):
             
             note = notes[i]
             i += 1
-            
-        
+
         measures.append(current_measure)
         j = i-1
         a = j # first carried over note is at index a in notes
@@ -184,15 +211,20 @@ def get_measures(track, ticks_per_measure):
         current_measure = list()
         carry_over = list()
         measure_count += 1
-        if carried: note = notes[a]
+        if carried:
+            note = notes[a]
+            i = a + 1
 
     return measures
-
 
 def get_chord_progression(bass, piano, ticks_per_measure, key):
     key = key % 12 # account for minor keys
     bass_measures = get_measures(bass, ticks_per_measure)
     piano_measures = get_measures(piano, ticks_per_measure)
+
+    # for el in bass_measures:
+    #     print " ".join(str(n.pitch) for n in el)
+
 
     # for m in bass_measures:
     #     if len(m) >= 1:
@@ -290,7 +322,8 @@ def to_abstract_melody(melody, c, key, ticks_per_measure):
 
     chord_tones = list()
     abstract_melody = list()
-    minor = key >= 12
+    minor = c >= 12
+    c = c % 12
     key = key % 12
     if minor:
         chord_tones = [c, c+3, c+7, c+10]
@@ -302,19 +335,31 @@ def to_abstract_melody(melody, c, key, ticks_per_measure):
 
     for note in melody:
         n = (note.pitch + 12 - key) % 12 # get note relative to key
-        start = str(roundtoEighth(note.start, ticks_per_measure))
-        end = str(roundtoEighth(note.end, ticks_per_measure))
-        d = str(roundtoEighth(note.duration, ticks_per_measure))
+
+        # start and end relative to this measure
+        start = note.start % ticks_per_measure
+        end = note.end % ticks_per_measure
+
+        if end == 0: # note ended exactly at end of measure
+            end = ticks_per_measure
+
+        start = str(roundG(float(start) / float(ticks_per_measure), 4, .0625))
+        end = str(roundG(float(end) / float(ticks_per_measure), 4, .0625))
+
+        
+        # start = str(roundtoEighth(note.start, ticks_per_measure))
+        # end = str(roundtoEighth(note.end, ticks_per_measure))
+        # d = str(roundtoEighth(note.duration, ticks_per_measure))
         if note.note_type == 'R':
-            abstract_melody.append('R'+ '-' + d)
+            abstract_melody.append('R'+ '-' + start + '-' + end)
         elif n in chord_tones:
-            abstract_melody.append('A' + '-' + d)
+            abstract_melody.append('A'+ '-' + start + '-' + end)
         elif n in color_tones:
-            abstract_melody.append('B'+ '-' + d)
+            abstract_melody.append('B'+ '-' + start + '-' + end)
         elif n in approach_tones:
-            abstract_melody.append('C'+ '-' + d)
+            abstract_melody.append('C'+ '-' + start + '-' + end)
         else: 
-            abstract_melody.append('X'+ '-' + d)
+            abstract_melody.append('X'+ '-' + start + '-' + end)
 
     return abstract_melody
 
@@ -384,53 +429,115 @@ def generate(key, chord_progression, category_transitions, abstract_note_to_note
     pattern = midi.Pattern(resolution=resolution)
     track = midi.Track()
     prev_category = random.choice(category_transitions.keys())[random.choice([0, 1])]
-    len_prev_rest = 0
+    measure_count = 0
+    events = list()
     for c in chord_progression:
         # get category based on previous
         curr_category = choice(prev_category, category_transitions)
         melodies = category_to_abstract_melodies[curr_category]
         m = random.choice(melodies)
         prev_category = curr_category
+        # print m[len(m)-1]
+        # print " ".join(str(el) for el in m)
 
+        ## WITH SIMULTANEOUS NOTES
         for n in m:
-            # instantiate abstract melody, only append notes
+            if type(n) is int:
+                break
             t = n.split('-')
             if t[0] == 'R':
-                len_prev_rest += int(float(t[1]) * float(ticks_per_measure))
                 continue
-            rel_note = choice(t[0], abstract_note_to_note[c]) # choose note relative to key that corresponds to abstract note
-            start = len_prev_rest
-            end = int(float(t[1]) * float(ticks_per_measure)) # note duration
-            len_prev_rest = 0
-            pitch = ((rel_note + key) % 12) + 36
-            track.append(midi.NoteOnEvent(tick=start, data=[pitch, 80]))
-            track.append(midi.NoteOffEvent(tick=end, data=[pitch, 80]))
+            # get start and end in ticks relative to current measure
+            start = int(float(t[1]) * ticks_per_measure)
+            end = int(float(t[2]) * ticks_per_measure)
 
-    
+            # get absolute start and end in ticks
+            measure_start = ticks_per_measure * measure_count
+            start = start + measure_start
+            end = end + measure_start
+            rel_note = choice(t[0], abstract_note_to_note[c]) # choose note relative to key that corresponds to abstract note
+            pitch = ((rel_note + key) % 12) + 36
+
+
+            #print pitch
+            # events.append(Event('On', start, pitch))
+            # events.append(Event('Off', start+50, pitch))
+
+            events.append(Event('On', start, end, pitch))
+            events.append(Event('Off', start, end, pitch))
+        
+        measure_count += 1
+        #print measure_count
+
+        # generate midi track
+
+    #events.sort()
+
+    last_tick = 0 # absolute tick count
+
+    for e in events:
+        # print e.end - e.start
+        if e.type == 'On':
+            #track.append(midi.NoteOnEvent(tick=e.tick-last_tick, data=[e.pitch, 80]))
+            track.append(midi.NoteOnEvent(tick=e.start-last_tick, data=[e.pitch, 80]))
+            last_tick = e.start
+        else:
+            #track.append(midi.NoteOffEvent(tick=e.tick-last_tick, data=[e.pitch, 80]))
+            track.append(midi.NoteOffEvent(tick=e.end-last_tick, data=[e.pitch, 80]))
+            last_tick = e.end
+        #last_tick = e.tick
+
     track.append(midi.EndOfTrackEvent(tick=1))
     pattern.append(track)
-    midi.write_midifile("test2.mid", pattern)
+    midi.write_midifile("out.mid", pattern)
 
 
-def test(file):
-    pattern = midi.read_midifile(file)
+def test(ifile):
+    ticks_so_far = 0
+    pattern = midi.read_midifile(ifile)
     metadata = pattern[0]
     melody = pattern[1]
-    bass = pattern[3]
-    #measures = get_measures(melody, 480 * 4)
-    # for n in measures:
-    #     print " ".join(str(e.pitch) for e in n)
+    piano = pattern[2]
+    bassline = pattern[3]
+    key_code = -1
+    beats_per_measure = -1
+    ticks_per_measure = -1  
 
-    # notes = get_notes(melody)
-    # notes.sort()
-    # for n in notes:
+    # extract time and key signature
+    for el in metadata:
+        if type(el) is midi.KeySignatureEvent: 
+            key_code = el.data[0]
+        elif type(el) is midi.TimeSignatureEvent:
+            beats_per_measure = el.data[0]
+            ticks_per_measure = pattern.resolution * beats_per_measure
+    if key_code == -1 or beats_per_measure == -1:
+        sys.exit("No time or key signature: " + input_file)
+
+    key = get_key(key_code)
+
+    chord_progression = get_chord_progression(bassline, piano, ticks_per_measure, key)
+    # for c in chord_progression:
+    #     print c
+
+
+    # for n in notes: 
     #     print n.pitch
+    measures = get_measures(melody, ticks_per_measure)
 
-    # measures = get_measures(melody, 480 * 4)
-    # for m in measures:
-    #     print " ".join(str(n.pitch) for n in m)
 
-    #chord_progression = get_chord_progression()
+
+    # for el in measures:
+    #     print " ".join(str(n.pitch) + ": " + str(n.start) + "-" + str(n.end) for n in el)
+
+    # # for el in measures:
+    #     print " ".join(str(n.pitch) + " " for n in el)
+
+    #print len(measures)
+
+    # for i in range(len(measures)):
+    #     print "     ".join(to_abstract_melody(measures[i], chord_progression[i], key, ticks_per_measure))
+
+
 
 if __name__ == "__main__":
     category_transitions = dict()
@@ -438,9 +545,21 @@ if __name__ == "__main__":
     for i in range(0, 25):
         abstract_note_to_note[i] = dict()
     category_to_abstract_melodies = dict()
-    test(sys.argv[1])
-    #train(sys.argv[1], category_transitions, abstract_note_to_note, category_to_abstract_melodies)
-    input_chords = [0, 0, 0, 0, 5, 5, 0, 0, 7, 5, 0, 5]
+    rootdir = "/Users/janitachalam/Documents/Amherst/SENIOR/Thesis/jazz_markov_code/training_phase_2"
+    if not sys.argv:
+        for subdir, dirs, files in os.walk(rootdir):
+            for f in files:
+                train(os.path.join(rootdir, f), category_transitions, abstract_note_to_note, category_to_abstract_melodies)
+    else:
+        train(sys.argv[1], category_transitions, abstract_note_to_note, category_to_abstract_melodies)
+    input_chords = [21, 0, 21, 0, 14, 14, 21, 0, 16, 5, 21, 0]
+    input_chords = [0, 0] # change_shortest
+    input_chords = [0, 0, 5, 21, 0, 5, 21, 0, 0, 0, 5, 21, 0, 5, 21]
+    input_chords = [14, 0, 14, 14, 12, 7, 0, 0, 14, 0, 14]
+    input_chords = [0, 0, 14, 21, 0, 14, 7, 21, 0, 0, 14, 21] 
+    input_chords = [0, 0, 5, 21, 0, 5, 21, 0, 0, 0, 5, 21] # change_short
+    input_chords = [0, 0, 0, 0, 0, 8] # basin
+    input_chords = [21, 0, 21, 0, 14, 14, 21, 0]
+    input_chords = [0, 0, 0, 0]
     input_key = 0
-    # normalize all transition probabilities
-    #generate(input_key, input_chords, category_transitions, abstract_note_to_note, category_to_abstract_melodies)
+    generate(input_key, input_chords, category_transitions, abstract_note_to_note, category_to_abstract_melodies)
