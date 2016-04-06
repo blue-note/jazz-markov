@@ -7,6 +7,7 @@ import shelve
 import os
 import math
 
+blues = False
 
 class Note:
        def __init__(self, pitch, duration, note_type, start=-1, end=-1):
@@ -247,10 +248,14 @@ def get_chord_progression(bass, piano, ticks_per_measure, key):
             i = (i + 12 - key) % 12
             weight = 0
 
-            major = [i, i+2, i+4, i+5, i+7, i+9, i+11]
-            minor = [i, i+2, i+3, i+5, i+7, i+8, i+10]
+            # major = [i, i+2, i+4, i+5, i+7, i+9, i+11]
+            # minor = [i, i+2, i+3, i+5, i+7, i+8, i+10]
 
-            major = [i, i+4, i+7, i+11]
+            if blues:
+                major = [i, i+4, i+7, i+10]
+            else: 
+                major = [i, i+4, i+7, i+11]
+                
             minor = [i, i+3, i+7, i+10]
 
             if o < 12: # major chord
@@ -456,7 +461,7 @@ def generate(key, chord_progression, category_transitions, abstract_note_to_note
             start = start + measure_start
             end = end + measure_start
             rel_note = choice(t[0], abstract_note_to_note[c]) # choose note relative to key that corresponds to abstract note
-            pitch = ((rel_note + key) % 12) + 36
+            pitch = ((rel_note + key) % 12) + 72
 
 
             #print pitch
@@ -489,7 +494,7 @@ def generate(key, chord_progression, category_transitions, abstract_note_to_note
 
     track.append(midi.EndOfTrackEvent(tick=1))
     pattern.append(track)
-    midi.write_midifile("out.mid", pattern)
+    midi.write_midifile("output.mid", pattern)
 
 
 def test(ifile):
@@ -538,19 +543,23 @@ def test(ifile):
     #     print "     ".join(to_abstract_melody(measures[i], chord_progression[i], key, ticks_per_measure))
 
 
-
 if __name__ == "__main__":
     category_transitions = dict()
     abstract_note_to_note = dict()
     for i in range(0, 25):
         abstract_note_to_note[i] = dict()
     category_to_abstract_melodies = dict()
-    rootdir = "/Users/janitachalam/Documents/Amherst/SENIOR/Thesis/jazz_markov_code/training_phase_2"
-    if not sys.argv:
+    rootdir = "/Users/janitachalam/Documents/Amherst/SENIOR/Thesis/jazz_markov_code/p2"
+    if len(sys.argv) == 1:
         for subdir, dirs, files in os.walk(rootdir):
             for f in files:
+                if f[0] == 'B':
+                    blues = True
                 train(os.path.join(rootdir, f), category_transitions, abstract_note_to_note, category_to_abstract_melodies)
+                blues = False
     else:
+        if sys.argv[1][3] == 'B':
+            blues = True
         train(sys.argv[1], category_transitions, abstract_note_to_note, category_to_abstract_melodies)
     input_chords = [21, 0, 21, 0, 14, 14, 21, 0, 16, 5, 21, 0]
     input_chords = [0, 0] # change_shortest
@@ -560,6 +569,14 @@ if __name__ == "__main__":
     input_chords = [0, 0, 5, 21, 0, 5, 21, 0, 0, 0, 5, 21] # change_short
     input_chords = [0, 0, 0, 0, 0, 8] # basin
     input_chords = [21, 0, 21, 0, 14, 14, 21, 0]
-    input_chords = [0, 0, 0, 0]
+    input_chords = [0, 0, 0, 0] # test
+    input_chords = [12, 12, 12, 0, 12, 0, 12, 5, 3, 10] # bluesy_thing
+    input_chords = [0, 0, 0, 0] # baby_workout
+    input_chords = [21, 12, 5, 21] # blooze
+    input_chords = [5, 0, 0, 16] # blue monday
+    input_chords = [0, 0, 0, 0] # blues for chesie
+    input_chords = [0, 0, 5, 5, 5, 0, 7, 12, 18, 11] # blues for jen
+    input_chords = [0, 5, 0, 0, 5] # blues in the night
+    input_chords = [0, 0, 0, 0, 5, 5, 0, 0]
     input_key = 0
     generate(input_key, input_chords, category_transitions, abstract_note_to_note, category_to_abstract_melodies)
